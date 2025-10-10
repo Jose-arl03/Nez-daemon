@@ -19,3 +19,4 @@ services/deployer/app/normas/__pycache__/*
 services/metadata/metadata/log/*
 services/valuechain_api/api/app/logs/execution/*
 services/valuechain_api/logs/*
+*:Zone.Identifier

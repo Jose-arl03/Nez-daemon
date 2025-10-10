@@ -352,9 +352,25 @@ services:
       - "./deployer/app/dispersals/downloads/c2/:/home/Volume/Results/chunk2/"
       - "./deployer/app/dispersals/downloads/c3/:/home/Volume/Results/chunk3/"
       - "./deployer/app/dispersals/downloads/c4/:/home/Volume/Results/chunk4/"
+<<<<<<< Updated upstream
       - "./deployer/app/dispersals/downloads/c5/:/home/Volume/Results/chunk5/"  
   
 volumes:  
+=======
+      - "./deployer/app/dispersals/downloads/c5/:/home/Volume/Results/chunk5/"
+
+  watcher: # Middleware to watch for changes in Nez and invoke MictlanX
+    build: ./watcher
+    depends_on:
+      - deployer
+    volumes:
+      - "./deployer/app/:/data_to_watch"
+    environment:
+      - MICTLANX_ROUTER_URL=http://host.docker.internal:60666
+    restart: unless-stopped
+
+volumes:
+>>>>>>> Stashed changes
   psql-data-vc:
     driver: local
   sqlt-data-cm:

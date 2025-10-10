@@ -1,0 +1,169 @@
+
+version: '3.8'
+
+networks:
+  mictlanx:
+    driver: bridge
+
+volumes:
+  mictlanx-router-0-logs:
+  mictlanx-summoner-0-data:
+  mictlanx-rm-db:
+  mictlanx-peer-0-data:
+  mictlanx-peer-1-data:
+
+services:
+  # -------------------------------------------
+  # MICTLANX CLUSTER
+  # -------------------------------------------
+  mictlanx-router-0:
+    image: nachocode/mictlanx:router-0.1.0a0
+    restart: unless-stopped
+    env_file:
+      - ./mictlanx-client/.env.dev
+    environment:
+      - MICTLANX_PEERS_URI=mictlanx://mictlanx-peer-0@mictlanx-peer-0:24000,mictlanx-peer-1@mictlanx-peer-1:24001/?protocol=http&api_version=4
+    networks:
+      - mictlanx
+    ports:
+      - "60666:60666"
+    volumes:
+      - mictlanx-router-0-logs:/log
+    command: >
+      sh -c 'gunicorn --worker-class uvicorn.workers.UvicornWorker
+      mictlanxrouter.server:app
+      --bind ${MICTLANX_ROUTER_HOST-0.0.0.0}:${MICTLANX_ROUTER_PORT-60666}
+      --workers ${MICTLANX_MAX_WORKERS-1}'
+
+  mictlanx-rm-0:
+    image: ${MICTLANX_RM_IMAGE:-nachocode/mictlanx:rm-0.1.0a0}
+    container_name: mictlanx-rm-0
+    restart: unless-stopped
+    networks:
+      - mictlanx
+    ports:
+      - "5555:5555"
+    volumes:
+      - mictlanx-rm-db:/mictlanx/db
+    env_file:
+      - ./mictlanx-client/.env.dev
+    command: ["python", "-m", "mictlanxrm.main"]
+    environment:
+      - SUMMONER_IP_ADDR=mictlanx-summoner-0
+      - MICTLANX_PEERS_URI=mictlanx://mictlanx-peer-0@mictlanx-peer-0:24000,mictlanx-peer-1@mictlanx-peer-1:24001/?protocol=http&api_version=4
+
+  mictlanx-peer-0:
+    image: nachocode/mictlanx:peer-0.1.0a0
+    init: true
+    container_name: mictlanx-peer-0
+    user: root
+    restart: unless-stopped
+    networks:
+      - mictlanx
+    ports:
+      - "24000:24000"
+    volumes:
+      - mictlanx-peer-0-data:/app/mictlanx
+    environment:
+      - RUST_BACKTRACE=1
+      - NODE_ID=mictlanx-peer-0
+      - SERVER_IP_ADDR=0.0.0.0
+      - IP_ADDRESS=mictlanx-peer-0
+      - NODE_PORT=24000
+      - BASE_PATH=/app/mictlanx
+      - LOG_PATH=/app/mictlanx/log
+    command: ["/app/x"]
+    # healthcheck:
+    #   test: ["CMD", "curl", "-fsS", "http://127.0.0.1:24000/health"]
+    #   interval: 10s
+    #   timeout: 3s
+    #   retries: 10
+    #   start_period: 10s
+
+  mictlanx-peer-1:
+    image: nachocode/mictlanx:peer-0.1.0a0
+    init: true
+    container_name: mictlanx-peer-1
+    user: root
+    restart: unless-stopped
+    networks:
+      - mictlanx
+    ports:
+      - "24001:24001"
+    volumes:
+      - mictlanx-peer-1-data:/app/mictlanx
+    environment:
+      - RUST_BACKTRACE=1
+      - NODE_ID=mictlanx-peer-1
+      - SERVER_IP_ADDR=0.0.0.0
+      - IP_ADDRESS=mictlanx-peer-1
+      - NODE_PORT=24001
+      - BASE_PATH=/app/mictlanx
+      - LOG_PATH=/app/mictlanx/log
+    command: ["/app/x"]
+    # healthcheck:
+    #   test: ["CMD", "curl", "-fsS", "http://127.0.0.1:24001/health"]
+    #   interval: 10s
+    #   timeout: 3s
+    #   retries: 10
+    #   start_period: 10s
+
+  # -------------------------------------------
+  # NEZ-DAEMON WATCHER
+  # -------------------------------------------
+  watcher:
+    build:
+      context: .
+      dockerfile: ./Nez-daemon/services/watcher/Dockerfile
+    container_name: nez-watcher
+    restart: unless-stopped
+    networks:
+      - mictlanx
+    volumes:
+      - ./Nez-daemon/services/deployer/app/results:/data_to_watch
+    command: ["python", "-u", "watcher.py", "/data_to_watch"]
+    depends_on:
+      mictlanx-router-0:
+        condition: service_started
+      mictlanx-peer-0:
+        condition: service_started
+      mictlanx-peer-1:
+        condition: service_started
+
+  # -------------------------------------------
+  # Opcional: Summoner y Jaeger para debug
+  # -------------------------------------------
+  mictlanx-summoner-0:
+    image: nachocode/mictlanx:summoner
+    container_name: mictlanx-summoner-0
+    privileged: true
+    ports:
+      - "15000:15000"
+    environment:
+      - USER_ID=1000
+      - GROUP_ID=1000
+      - DOCKER_GID=1001
+      - BASE_PATH=/app/mictlanx
+      - BIN_NAME=summoner
+      - NODE_ID=mictlanx-summoner-0
+      - NODE_PORT=15000
+      - IP_ADDRESS=mictlanx-summoner-0
+      - SERVER_IP_ADDR=0.0.0.0
+      - LOG_PATH=/app/mictlanx/log
+      - LOCAL_PATH=/app/mictlanx/local
+      - DATA_PATH=/app/mictlanx/data
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - mictlanx-summoner-0-data:/mictlanx
+    networks:
+      - mictlanx
+
+  opentelemetry-jaeger-1:
+    image: jaegertracing/all-in-one:latest
+    restart: unless-stopped
+    container_name: opentelemetry-jaeger-1
+    networks:
+      - mictlanx
+    ports:
+      - "16686:16686"
+      - "4318:4318"
