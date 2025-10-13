@@ -40,7 +40,7 @@ def create_db_table():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
                 event_type TEXT NOT NULL,
-                src_path TEXT NOT NULL,
+                src_path TEXT NOT NULL UNIQUE,
                 dest_path TEXT,
                 is_directory INTEGER NOT NULL,
                 file_hash TEXT,
@@ -49,9 +49,35 @@ def create_db_table():
         ''')
         conn.commit()
         conn.close()
+        logging.info(f"Database '{DATABASE_NAME}' and table 'file_events' are ready.")
     except sqlite3.Error as e:
         logging.error(f"Could not create table: {e}")
         sys.exit(1)
+
+# --- DB Helper Functions ---
+def db_insert_event(event_type, src_path, is_directory, file_hash=None):
+    """Inserts a new file event into the database."""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    # Using INSERT OR IGNORE to prevent crashes if a file is detected multiple times
+    cursor.execute("""
+        INSERT OR IGNORE INTO file_events (timestamp, event_type, src_path, is_directory, file_hash, mictlanx_status)
+        VALUES (?, ?, ?, ?, ?, 'PENDING')
+    """, (timestamp, event_type, src_path, is_directory, file_hash))
+    conn.commit()
+    conn.close()
+
+def db_update_status(src_path, new_status):
+    """Updates the MictlanX status of a file event."""
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE file_events SET mictlanx_status = ? WHERE src_path = ?
+    """, (new_status, src_path))
+    conn.commit()
+    conn.close()
+# -------------------------
 
 class WatchdogProducer(FileSystemEventHandler):
     """FileSystemEventHandler that produces file paths for uploading."""
@@ -62,6 +88,15 @@ class WatchdogProducer(FileSystemEventHandler):
     def on_created(self, event):
         if not event.is_directory:
             logging.info(f"Detected new file: {event.src_path}")
+            # Persist the event to the database first for reliability
+            try:
+                db_insert_event('created', event.src_path, event.is_directory)
+                logging.info(f"Logged new file to DB with PENDING status: {event.src_path}")
+            except sqlite3.Error as e:
+                logging.error(f"Failed to log file creation to DB for {event.src_path}: {e}")
+                # If DB write fails, we might lose track of this file on restart.
+                # For now, we log and continue, but this could be a critical failure point.
+
             # Schedule the queue insertion on the main event loop in a thread-safe way
             self.loop.call_soon_threadsafe(self.queue.put_nowait, event.src_path)
 
@@ -87,6 +122,11 @@ async def mictlanx_consumer(queue: asyncio.Queue, client: AsyncClient, path_to_w
 
             if not os.path.exists(filepath):
                 logging.warning(f"File no longer exists, skipping: {filepath}")
+                try:
+                    # Mark as FAILED because we couldn't process it.
+                    db_update_status(filepath, 'FAILED')
+                except sqlite3.Error as e:
+                    logging.error(f"Failed to update DB status for already deleted file {filepath}: {e}")
                 continue
 
             # --- MictlanX Upload Logic with Retries ---
@@ -106,6 +146,11 @@ async def mictlanx_consumer(queue: asyncio.Queue, client: AsyncClient, path_to_w
                     if not content:
                         logging.warning(f"File {filepath} is empty, skipping upload.")
                         upload_success = True # Mark as success to avoid quarantine
+                        try:
+                            # File is handled, consider it "done"
+                            db_update_status(filepath, 'UPLOADED')
+                        except sqlite3.Error as e:
+                            logging.error(f"Failed to update DB status for empty file {filepath}: {e}")
                         break
 
                     result = await client.put(
@@ -118,6 +163,12 @@ async def mictlanx_consumer(queue: asyncio.Queue, client: AsyncClient, path_to_w
                     if result.is_ok:
                         logging.info(f"Successfully uploaded {filepath} to MictlanX.")
                         upload_success = True
+                        try:
+                            db_update_status(filepath, 'UPLOADED')
+                            logging.info(f"Updated DB status to UPLOADED for {filepath}")
+                        except sqlite3.Error as e:
+                            logging.error(f"Failed to update DB status to UPLOADED for {filepath}: {e}")
+                        
                         # After a successful upload, we can delete the original file
                         try:
                             os.remove(filepath)
@@ -131,6 +182,11 @@ async def mictlanx_consumer(queue: asyncio.Queue, client: AsyncClient, path_to_w
                 except FileNotFoundError:
                     logging.warning(f"File {filepath} was not found for upload (it may have been deleted after a previous failed attempt). Aborting retries.")
                     upload_success = True # Treat as handled, no need to quarantine
+                    try:
+                        # The file is gone, so the desired state is achieved. Mark as UPLOADED.
+                        db_update_status(filepath, 'UPLOADED')
+                    except sqlite3.Error as e:
+                        logging.error(f"Failed to update DB status for not-found file {filepath}: {e}")
                     break
                 except Exception as e:
                     logging.exception(f"An exception occurred during MictlanX upload for {filepath} on attempt {attempt}: {e}")
@@ -141,11 +197,14 @@ async def mictlanx_consumer(queue: asyncio.Queue, client: AsyncClient, path_to_w
                     logging.info(f"Waiting {delay} seconds before next retry...")
                     await asyncio.sleep(delay)
 
-            # --- Quarantine Logic ---
+            # --- Final Status Update ---
             if not upload_success:
                 logging.error(f"All {max_retries} attempts to upload {filepath} failed. The file might have been deleted by the client.")
-                # The file is likely gone at this point, so we just log the failure.
-                # If we wanted to be safer, we would copy the file before attempting to upload.
+                try:
+                    db_update_status(filepath, 'FAILED')
+                    logging.info(f"Updated DB status to FAILED for {filepath}")
+                except sqlite3.Error as e:
+                    logging.error(f"Failed to update DB status to FAILED for {filepath}: {e}")
             
             # Mark the task as done
             queue.task_done()
@@ -182,6 +241,31 @@ async def main(path_to_watch: str, mictlanx_uri: str):
     """Main function to set up and run the watcher and consumers."""
     # Create a queue for communication between watchdog (producer) and uploader (consumer)
     upload_queue = asyncio.Queue()
+
+    # --- Add recovery logic for pending files ---
+    logging.info("Checking for pending files from previous sessions...")
+    try:
+        conn = sqlite3.connect(DATABASE_NAME)
+        cursor = conn.cursor()
+        # Find files that are still marked as PENDING
+        cursor.execute("SELECT src_path FROM file_events WHERE mictlanx_status = 'PENDING'")
+        pending_files = cursor.fetchall()
+        conn.close()
+        
+        if pending_files:
+            logging.info(f"Found {len(pending_files)} pending files to re-queue.")
+            for row in pending_files:
+                filepath = row[0]
+                if os.path.exists(filepath):
+                    upload_queue.put_nowait(filepath)
+                    logging.info(f"Re-queued pending file: {filepath}")
+                else:
+                    # If file doesn't exist anymore, update its status to prevent reprocessing
+                    logging.warning(f"Pending file not found, marking as FAILED: {filepath}")
+                    db_update_status(filepath, 'FAILED')
+    except sqlite3.Error as e:
+        logging.error(f"Failed to recover pending files from DB: {e}")
+    # ------------------------------------------
 
     # Initialize the MictlanX client once
     client = AsyncClient(uri=mictlanx_uri, client_id="nez-watcher-daemon")
@@ -250,7 +334,8 @@ if __name__ == "__main__":
         logging.error(f"The provided path '{path_to_watch}' is not a valid directory.")
         sys.exit(1)
 
-    # create_db_table() # We can re-enable this later
+    # Ensure the database and table exist before starting.
+    create_db_table()
 
     try:
         asyncio.run(main(path_to_watch, mictlanx_uri))

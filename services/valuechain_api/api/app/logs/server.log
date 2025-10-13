@@ -16,3 +16,9 @@ DETAIL:  Key (final_status)=(0) is not present in table "deployments_status".
 [21/Aug/2023:15:06:58] (API) 0
 [21/Aug/2023:15:06:58] (API) UPDATE executions SET final_status = :st, executed = :ex where id = :id;
 			
+[13/Oct/2025:17:21:24] (API) SQLSTATE[23503]: Foreign key violation: 7 ERROR:  insert or update on table "executions" violates foreign key constraint "executions_final_status_fkey"
+DETAIL:  Key (final_status)=(0) is not present in table "deployments_status".
+[13/Oct/2025:17:21:24] (API) 2025-10-13 17:21:24
+[13/Oct/2025:17:21:24] (API) 0
+[13/Oct/2025:17:21:24] (API) UPDATE executions SET final_status = :st, executed = :ex where id = :id;
+			

@@ -58,10 +58,10 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./deployer/app:/home/app"
-      - "/home/domizzi/Documents/GitHub/Nez/services/deployer/app/:/home/domizzi/Documents/GitHub/Nez/services/deployer/app/"
+      - "/home/alo03/Estadia/Nez-daemon/services/deployer/app/:/home/alo03/Estadia/Nez-daemon/services/deployer/app/"
     environment:
       FLASK_ENV: development
-      HOST_PATH: /home/domizzi/Documents/GitHub/Nez/services/deployer/app/
+      HOST_PATH: /home/alo03/Estadia/Nez-daemon/services/deployer/app/
   value-chain-api-db: #Base de datos del servicio de construcción
     #build: ./valuechain_api/api/db
     image: ddomizzi/dbnez:v1
@@ -223,7 +223,7 @@ services:
       DB_PORT: 5432
       PUB_SUB_HOST: pub_sub
       AUTH_HOST: auth
-      URL: "http://127.0.0.1:20505"
+      URL: "http://172.29.211.35:20505"
     volumes:
       - ./metadata/metadata/:/var/www/html/
     restart: always
@@ -352,25 +352,23 @@ services:
       - "./deployer/app/dispersals/downloads/c2/:/home/Volume/Results/chunk2/"
       - "./deployer/app/dispersals/downloads/c3/:/home/Volume/Results/chunk3/"
       - "./deployer/app/dispersals/downloads/c4/:/home/Volume/Results/chunk4/"
-<<<<<<< Updated upstream
-      - "./deployer/app/dispersals/downloads/c5/:/home/Volume/Results/chunk5/"  
-  
-volumes:  
-=======
       - "./deployer/app/dispersals/downloads/c5/:/home/Volume/Results/chunk5/"
 
-  watcher: # Middleware to watch for changes in Nez and invoke MictlanX
-    build: ./watcher
+  watcher:
+    build:
+      context: ../..
+      dockerfile: Nez-daemon/services/watcher/Dockerfile
+    container_name: nez-watcher
+    restart: unless-stopped
+    volumes:
+      - ./deployer/app/results:/data_to_watch
+    command: ["python", "-u", "watcher.py", "/data_to_watch"]
+    environment:
+      - MICTLANX_URI=mictlanx://mictlanx-router-0@host.docker.internal:60666?/api_version=4&protocol=http
     depends_on:
       - deployer
-    volumes:
-      - "./deployer/app/:/data_to_watch"
-    environment:
-      - MICTLANX_ROUTER_URL=http://host.docker.internal:60666
-    restart: unless-stopped
 
 volumes:
->>>>>>> Stashed changes
   psql-data-vc:
     driver: local
   sqlt-data-cm:
