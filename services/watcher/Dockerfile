@@ -1,24 +1,31 @@
-# Usar una imagen oficial de Python como imagen base
-FROM python:3.9-slim
+FROM python:3.11-slim
 
-# Establecer el directorio de trabajo
 WORKDIR /app
 
-# Instalar poetry, que usaremos para construir la rueda (wheel) de mictlanx-client
-RUN pip install poetry
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar el código fuente del proyecto mictlanx-client
-# Esto asume que el contexto de construcción de Docker es el directorio 'Estadia'
-COPY mictlanx-client /tmp/mictlanx-client/
+# Copy the watcher script
+COPY watcher.py .
 
-# Entrar en el directorio del proyecto, construir la rueda e instalarla globalmente en el contenedor
-RUN cd /tmp/mictlanx-client && poetry build && pip install --extra-index-url https://test.pypi.org/simple/ dist/*.whl
+# Create necessary directories
+RUN mkdir -p /app/watch_dir /app/quarantine
 
-# Ahora, copiar el código fuente de la aplicación watcher
-COPY Nez-daemon/services/watcher/ /app/
+# Environment variables with defaults
+ENV WATCH_DIRECTORY=/app/watch_dir \
+    QUARANTINE_DIRECTORY=/app/quarantine \
+    BUCKET_ID=nez-bucket \
+    REPLICATION_FACTOR=3 \
+    MAX_WORKERS=5 \
+    MAX_FILE_SIZE_MB=500 \
+    FILE_STABILITY_TIMEOUT=2.0 \
+    LOG_LEVEL=INFO \
+    MICTLANX_URI=""
 
-# Instalar las dependencias propias del watcher desde su requirements.txt
-RUN pip install -r requirements.txt
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)"
 
-# El comando para iniciar el watcher. El directorio a vigilar se pasará desde docker-compose.
+# Run the watcher
 CMD ["python", "-u", "watcher.py"]

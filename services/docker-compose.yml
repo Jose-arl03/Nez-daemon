@@ -354,19 +354,19 @@ services:
       - "./deployer/app/dispersals/downloads/c4/:/home/Volume/Results/chunk4/"
       - "./deployer/app/dispersals/downloads/c5/:/home/Volume/Results/chunk5/"
 
-  watcher:
-    build:
-      context: ../..
-      dockerfile: Nez-daemon/services/watcher/Dockerfile
-    container_name: nez-watcher
-    restart: unless-stopped
-    volumes:
-      - ./deployer/app/results:/data_to_watch
-    command: ["python", "-u", "watcher.py", "/data_to_watch"]
-    environment:
-      - MICTLANX_URI=mictlanx://mictlanx-router-0@host.docker.internal:60666?/api_version=4&protocol=http
-    depends_on:
-      - deployer
+  # watcher:
+#     build:
+#       context: ../..
+#       dockerfile: Nez-daemon/services/watcher/Dockerfile
+#     container_name: nez-watcher
+#     restart: unless-stopped
+#     volumes:
+#       - ./deployer/app/results:/data_to_watch
+#     command: ["python", "-u", "watcher.py", "/data_to_watch"]
+#     environment:
+#       - MICTLANX_URI=mictlanx://mictlanx-router-0@host.docker.internal:60666?/api_version=4&protocol=http
+#     depends_on:
+#       - deployer
 
 volumes:
   psql-data-vc:
