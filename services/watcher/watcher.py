@@ -116,7 +116,42 @@ async def health_check():
         raise
 
 
-# --- Uploader Logic ---
+# --- MictlanX File Operations ---
+async def check_file_existence(client: httpx.AsyncClient, bucket_id: str, file_name: str) -> bool:
+    """
+    Checks if a file with the given name already exists in the MictlanX bucket.
+    """
+    try:
+        response = await client.get(
+            f"{MICTLANX_SERVICE_URL}/mictlanx/api/v4/buckets/{bucket_id}/metadata/{file_name}",
+            timeout=10.0
+        )
+        response.raise_for_status()
+        logger.info(f"File '{file_name}' already exists in MictlanX.")
+        return True
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.debug(f"File '{file_name}' does not exist in MictlanX (404 Not Found).")
+            return False
+        elif e.response.status_code == 500:
+            try:
+                response_detail = e.response.json().get("detail", "")
+                if "404: No available peers" in response_detail:
+                    logger.debug(f"File '{file_name}' does not exist in MictlanX (500 with 'No available peers' detail).")
+                    return False
+                else:
+                    logger.error(f"Error checking existence of '{file_name}': HTTP {e.response.status_code} - {e.response.text}")
+                    raise
+            except ValueError: # Not a valid JSON
+                logger.error(f"Error checking existence of '{file_name}': HTTP {e.response.status_code} - {e.response.text}")
+                raise
+        else:
+            logger.error(f"Error checking existence of '{file_name}': HTTP {e.response.status_code} - {e.response.text}")
+            raise
+    except httpx.RequestError as e:
+        logger.error(f"Network error checking existence of '{file_name}': {e}")
+        raise
+
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
 async def upload_file(client: httpx.AsyncClient, file_path: Path):
     """Orchestrates the two-step file upload process."""
@@ -240,7 +275,13 @@ async def worker(name: str, queue: asyncio.Queue):
             try:
                 # Wait for file to be completely written
                 await wait_for_file_stability(file_path)
-                
+
+                # Check if file already exists in MictlanX
+                file_name = file_path.name
+                if await check_file_existence(client, BUCKET_ID, file_name):
+                    logger.info(f"[{name}] File '{file_name}' already exists in MictlanX. Skipping upload.")
+                    continue # Skip to the next item in the queue
+
                 # Upload the file
                 await upload_file(client, file_path)
                 logger.info(f"[{name}] ✓ Successfully processed {file_path.name}")
