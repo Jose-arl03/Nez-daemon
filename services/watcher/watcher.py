@@ -8,11 +8,19 @@ from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import hashlib
+import re # Added for sanitizing keys
 import time
 from urllib.parse import urlparse, parse_qs
 
 # --- Configuration ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+# --- Helper Functions ---
+def sanitize_key(key: str) -> str:
+    """
+    Removes all non-alphanumeric characters from a string.
+    """
+    return re.sub(r'[^a-zA-Z0-9]', '', key)
 
 # Paths
 WATCH_DIRECTORY = os.getenv("WATCH_DIRECTORY", "/app/watch_dir")
@@ -189,10 +197,11 @@ async def upload_file(client: httpx.AsyncClient, file_path: Path):
             ball_id = f"{int(time.time())}-{hashlib.md5(file_name.encode()).hexdigest()[:8]}"
         
         # Step 1: Register metadata
-        logger.debug(f"Step 1: Registering metadata for {file_name}")
+        sanitized_file_name = sanitize_key(file_name) # Sanitize the file name
+        logger.debug(f"Step 1: Registering metadata for {file_name} (sanitized to: {sanitized_file_name})")
         metadata_payload = {
             "bucket_id": BUCKET_ID,
-            "key": file_name,
+            "key": sanitized_file_name, # Use the sanitized file name as key
             "ball_id": ball_id,
             "checksum": checksum,
             "size": file_size,
@@ -209,11 +218,12 @@ async def upload_file(client: httpx.AsyncClient, file_path: Path):
         response_meta.raise_for_status()
         task_info = response_meta.json()
         
-        # Extract task_id (group_id) from response
-        task_id = task_info.get("group_id")
-        if not task_id:
+        # Extract task_id from response (using tasks_ids)
+        tasks_ids = task_info.get("tasks_ids")
+        if not tasks_ids or not isinstance(tasks_ids, list) or not tasks_ids[0]:
             logger.error(f"Response from metadata endpoint: {task_info}")
-            raise ValueError("Could not get task_id (group_id) from metadata response")
+            raise ValueError("Could not get task_id from 'tasks_ids' in metadata response")
+        task_id = tasks_ids[0]
         
         logger.info(f"✓ Metadata registered. Task ID: {task_id}")
         
