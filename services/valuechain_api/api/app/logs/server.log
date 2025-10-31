@@ -22,3 +22,11 @@ DETAIL:  Key (final_status)=(0) is not present in table "deployments_status".
 [13/Oct/2025:17:21:24] (API) 0
 [13/Oct/2025:17:21:24] (API) UPDATE executions SET final_status = :st, executed = :ex where id = :id;
 			
+[31/Oct/2025:17:44:34] (API) SQLSTATE[57P01]: Admin shutdown: 7 FATAL:  terminating connection due to administrator command
+server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+[31/Oct/2025:17:44:34] (API) 2025-10-31 17:44:34
+[31/Oct/2025:17:44:34] (API) 0
+[31/Oct/2025:17:44:34] (API) UPDATE executions SET final_status = :st, executed = :ex where id = :id;
+			
