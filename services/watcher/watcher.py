@@ -8,9 +8,10 @@ from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import hashlib
-import re # Added for sanitizing keys
+import re
 import time
 from urllib.parse import urlparse, parse_qs
+from mictlanx.services.router import AsyncRouter
 
 # --- Configuration ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -23,14 +24,14 @@ def sanitize_key(key: str) -> str:
     return re.sub(r'[^a-zA-Z0-9]', '', key)
 
 # Paths
-WATCH_DIRECTORY = os.getenv("WATCH_DIRECTORY", "/app/watch_dir")
-QUARANTINE_DIRECTORY = os.getenv("QUARANTINE_DIRECTORY", "/app/quarantine")
+WATCH_DIRECTORY = os.getenv("WATCH_DIRECTORY", "/home/alo03/Estadia/Nez-daemon/services/deployer/app/results")
+QUARANTINE_DIRECTORY = os.getenv("QUARANTINE_DIRECTORY", "/home/alo03/Estadia/Nez-daemon/services/deployer/app/quarantine")
 
 # MictlanX Configuration
 BUCKET_ID = os.getenv("BUCKET_ID", "nez-bucket")
 REPLICATION_FACTOR = int(os.getenv("REPLICATION_FACTOR", "3"))
 MICTLANX_URI = os.getenv("MICTLANX_URI", "")
-MICTLANX_SERVICE_URL = ""  # Will be parsed from MICTLANX_URI
+MICTLANX_ROUTER: AsyncRouter = None  # Will be parsed from MICTLANX_URI
 
 # Worker Configuration
 MAX_WORKERS = int(os.getenv("MAX_WORKERS", "5"))
@@ -47,35 +48,23 @@ logger = logging.getLogger(__name__)
 
 
 # --- URI Parser ---
-def parse_mictlanx_uri(uri: str) -> str:
+def parse_mictlanx_uri(uri: str) -> AsyncRouter:
     """
-    Parses the MictlanX URI and returns the service URL.
-    
-    Example: mictlanx://mictlanx-router-0@host.docker.internal:60666?api_version=4&protocol=http
-    Returns: http://host.docker.internal:60666
+    Parses the MictlanX URI and returns an AsyncRouter instance.
     """
     if not uri:
         raise ValueError("MICTLANX_URI environment variable is not set")
     
     try:
-        # Extract protocol from query params
-        protocol = "http"  # default
-        if "protocol=" in uri:
-            query_part = uri.split("?", 1)[1] if "?" in uri else ""
-            params = parse_qs(query_part)
-            protocol = params.get("protocol", ["http"])[0]
+        parsed_uri = urlparse(uri)
+        protocol = parse_qs(parsed_uri.query).get("protocol", ["http"])[0]
+        router_id = parsed_uri.username
+        ip_addr = parsed_uri.hostname
+        port = parsed_uri.port
         
-        # Extract host and port
-        if "@" in uri:
-            # Format: mictlanx://name@host:port?params
-            host_port = uri.split("@")[1].split("?")[0]
-        else:
-            # Format: mictlanx://host:port?params
-            host_port = uri.split("://")[1].split("?")[0]
-        
-        service_url = f"{protocol}://{host_port}"
-        logger.info(f"Parsed MictlanX Service URL: {service_url}")
-        return service_url
+        router = AsyncRouter(router_id=router_id, ip_addr=ip_addr, port=port, protocol=protocol)
+        logger.info(f"Parsed MictlanX Router: {router}")
+        return router
     
     except Exception as e:
         raise ValueError(f"Failed to parse MICTLANX_URI '{uri}': {e}")
@@ -85,7 +74,6 @@ def parse_mictlanx_uri(uri: str) -> str:
 async def wait_for_file_stability(file_path: Path, timeout: float = FILE_STABILITY_TIMEOUT):
     """
     Waits for a file to stop changing (no size/mtime changes).
-    This ensures the file is completely written before processing.
     """
     try:
         last_size = file_path.stat().st_size
@@ -108,30 +96,69 @@ async def wait_for_file_stability(file_path: Path, timeout: float = FILE_STABILI
 
 
 # --- Health Check ---
-@retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10))
+# @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=4, max=10)) # Temporarily remove retry
 async def health_check():
     """Checks if the mictlanx-service is available before starting."""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                f"{MICTLANX_SERVICE_URL}/mictlanx/api/v4/buckets/{BUCKET_ID}/metadata"
-            )
-            response.raise_for_status()
+        result = await MICTLANX_ROUTER.get_bucket_metadata(bucket_id=BUCKET_ID)
+        if result.is_err:
+            error_val = result.err()
+            logger.error(f"DEBUG: Type of error_val: {type(error_val)}, Value of error_val: {error_val}")
+            if isinstance(error_val, Exception):
+                raise error_val
+            else:
+                raise RuntimeError(f"MictlanX health check failed with unexpected error type: {error_val}")
         logger.info("✓ MictlanX service is healthy and available.")
         return True
-    except (httpx.RequestError, httpx.HTTPStatusError) as e:
+    except Exception as e:
         logger.error(f"Health check failed: {e}. Retrying...")
         raise
 
 
 # --- MictlanX File Operations ---
+async def download_file_from_mictlanx(file_path: Path):
+    """Downloads a file from MictlanX based on a .mictlanx_download file."""
+    try:
+        logger.info(f"Processing download request from file: {file_path.name}")
+        with open(file_path, 'r') as f:
+            key_to_download = f.read().strip()
+
+        if not key_to_download:
+            logger.error(f"The download file {file_path.name} is empty.")
+            return
+
+        logger.info(f"Attempting to download file with key: {key_to_download}")
+        
+        # Define a downloads directory to prevent re-uploading downloaded files
+        download_dir = Path(WATCH_DIRECTORY).parent / "downloads"
+        download_dir.mkdir(exist_ok=True)
+
+        result = await MICTLANX_ROUTER.get_to_file(
+            bucket_id=BUCKET_ID,
+            key=key_to_download,
+            sink_folder_path=str(download_dir),
+            filename=key_to_download # Save with the original key as the filename
+        )
+
+        if result.is_ok:
+            downloaded_file_path = result.ok()
+            logger.info(f"Successfully downloaded file to '{downloaded_file_path}'")
+            # Clean up the .mictlanx_download file
+            file_path.unlink()
+        else:
+            logger.error(f"Failed to download file with key '{key_to_download}': {result.err()}")
+
+    except Exception as e:
+        logger.error(f"An error occurred during the download process: {e}")
+        move_to_quarantine(file_path)
+
 async def check_file_existence(client: httpx.AsyncClient, bucket_id: str, file_name: str) -> bool:
     """
     Checks if a file with the given name already exists in the MictlanX bucket.
     """
     try:
         response = await client.get(
-            f"{MICTLANX_SERVICE_URL}/mictlanx/api/v4/buckets/{bucket_id}/metadata/{file_name}",
+            f"{MICTLANX_ROUTER.base_url()}/api/v4/buckets/{bucket_id}/metadata/{file_name}",
             timeout=10.0
         )
         response.raise_for_status()
@@ -211,7 +238,7 @@ async def upload_file(client: httpx.AsyncClient, file_path: Path):
         }
         
         response_meta = await client.post(
-            f"{MICTLANX_SERVICE_URL}/mictlanx/api/v4/buckets/{BUCKET_ID}/metadata",
+            f"{MICTLANX_ROUTER.base_url()}/api/v4/buckets/{BUCKET_ID}/metadata",
             json=metadata_payload,
             timeout=30.0
         )
@@ -232,7 +259,7 @@ async def upload_file(client: httpx.AsyncClient, file_path: Path):
         with open(file_path, "rb") as f:
             files = {"data": (file_name, f, "application/octet-stream")}
             response_data = await client.post(
-                f"{MICTLANX_SERVICE_URL}/mictlanx/api/v4/buckets/data/{task_id}",
+                f"{MICTLANX_ROUTER.base_url()}/api/v4/buckets/data/{task_id}",
                 files=files,
                 timeout=300.0  # 5 minutes for large files
             )
@@ -283,18 +310,21 @@ async def worker(name: str, queue: asyncio.Queue):
             logger.info(f"[{name}] Processing: {file_path.name}")
             
             try:
-                # Wait for file to be completely written
-                await wait_for_file_stability(file_path)
+                if file_path.suffix == '.mictlanx_download':
+                    await download_file_from_mictlanx(file_path)
+                else:
+                    # Wait for file to be completely written
+                    await wait_for_file_stability(file_path)
 
-                # Check if file already exists in MictlanX
-                file_name = file_path.name
-                if await check_file_existence(client, BUCKET_ID, file_name):
-                    logger.info(f"[{name}] File '{file_name}' already exists in MictlanX. Skipping upload.")
-                    continue # Skip to the next item in the queue
+                    # Check if file already exists in MictlanX
+                    file_name = file_path.name
+                    if await check_file_existence(client, BUCKET_ID, file_name):
+                        logger.info(f"[{name}] File '{file_name}' already exists in MictlanX. Skipping upload.")
+                        continue # Skip to the next item in the queue
 
-                # Upload the file
-                await upload_file(client, file_path)
-                logger.info(f"[{name}] ✓ Successfully processed {file_path.name}")
+                    # Upload the file
+                    await upload_file(client, file_path)
+                    logger.info(f"[{name}] ✓ Successfully processed {file_path.name}")
                 
                 # Optional: Delete or move the file after successful upload
                 # file_path.unlink()  # Uncomment to delete after upload
@@ -338,7 +368,7 @@ class NewFileHandler(FileSystemEventHandler):
 # --- Main Execution ---
 async def main():
     """Main function to set up and run the watcher."""
-    global WATCH_DIRECTORY, MICTLANX_SERVICE_URL
+    global WATCH_DIRECTORY, MICTLANX_ROUTER
     
     logger.info("=" * 60)
     logger.info("    NEZ-DAEMON WATCHER - MictlanX Integration")
@@ -355,7 +385,7 @@ async def main():
     
     # Parse MictlanX URI
     try:
-        MICTLANX_SERVICE_URL = parse_mictlanx_uri(MICTLANX_URI)
+        MICTLANX_ROUTER = parse_mictlanx_uri(MICTLANX_URI)
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
         sys.exit(1)
@@ -367,7 +397,7 @@ async def main():
     logger.info(f"Replication Factor: {REPLICATION_FACTOR}")
     logger.info(f"Max Workers: {MAX_WORKERS}")
     logger.info(f"Max File Size: {MAX_FILE_SIZE_MB}MB")
-    logger.info(f"MictlanX Service: {MICTLANX_SERVICE_URL}")
+    logger.info(f"MictlanX Router: {MICTLANX_ROUTER}")
     logger.info("=" * 60)
     
     # Health check
