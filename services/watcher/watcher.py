@@ -23,9 +23,18 @@ def sanitize_key(key: str) -> str:
     """
     return re.sub(r'[^a-zA-Z0-9]', '', key)
 
+# --- Path Configuration ---
+# Make paths relative to the script's location.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+# Assumes the script is in <project_root>/services/watcher
+_PROJECT_ROOT = _SCRIPT_DIR.parent.parent
+
+_WATCH_DIR_DEFAULT = _PROJECT_ROOT / "services" / "deployer" / "app" / "results"
+_QUARANTINE_DIR_DEFAULT = _PROJECT_ROOT / "services" / "deployer" / "app" / "quarantine"
+
 # Paths
-WATCH_DIRECTORY = os.getenv("WATCH_DIRECTORY", "/home/alo03/Estadia/Nez-daemon/services/deployer/app/results")
-QUARANTINE_DIRECTORY = os.getenv("QUARANTINE_DIRECTORY", "/home/alo03/Estadia/Nez-daemon/services/deployer/app/quarantine")
+WATCH_DIRECTORY = os.getenv("WATCH_DIRECTORY", str(_WATCH_DIR_DEFAULT))
+QUARANTINE_DIRECTORY = os.getenv("QUARANTINE_DIRECTORY", str(_QUARANTINE_DIR_DEFAULT))
 
 # MictlanX Configuration
 BUCKET_ID = os.getenv("BUCKET_ID", "nez-bucket")
@@ -117,40 +126,87 @@ async def health_check():
 
 # --- MictlanX File Operations ---
 async def download_file_from_mictlanx(file_path: Path):
-    """Downloads a file from MictlanX based on a .mictlanx_download file."""
+    """Downloads a file or folder from MictlanX by searching metadata tags."""
     try:
         logger.info(f"Processing download request from file: {file_path.name}")
         with open(file_path, 'r') as f:
-            key_to_download = f.read().strip()
+            request_path = f.read().strip()
 
-        if not key_to_download:
+        if not request_path:
             logger.error(f"The download file {file_path.name} is empty.")
             return
 
-        logger.info(f"Attempting to download file with key: {key_to_download}")
-        
-        # Define a downloads directory to prevent re-uploading downloaded files
         download_dir = Path(WATCH_DIRECTORY).parent / "downloads"
         download_dir.mkdir(exist_ok=True)
 
-        result = await MICTLANX_ROUTER.get_to_file(
-            bucket_id=BUCKET_ID,
-            key=key_to_download,
-            sink_folder_path=str(download_dir),
-            filename=key_to_download # Save with the original key as the filename
-        )
+        # If request path ends with '/', it's a folder download
+        if request_path.endswith('/'):
+            logger.info(f"Folder download requested for: {request_path}")
+            
+            all_metadata_result = await MICTLANX_ROUTER.get_bucket_metadata(bucket_id=BUCKET_ID)
+            if all_metadata_result.is_err:
+                logger.error(f"Could not retrieve bucket metadata for folder download: {all_metadata_result.err()}")
+                return
 
-        if result.is_ok:
-            downloaded_file_path = result.ok()
-            logger.info(f"Successfully downloaded file to '{downloaded_file_path}'")
-            # Clean up the .mictlanx_download file
-            file_path.unlink()
-        else:
-            logger.error(f"Failed to download file with key '{key_to_download}': {result.err()}")
+            files_to_download = []
+            try:
+                # The response object contains the list of metadata objects in the 'balls' attribute.
+                all_metadata = all_metadata_result.ok().unwrap().balls
+                for meta in all_metadata:
+                    original_path = meta.tags.get("path")
+                    if original_path and original_path.startswith(request_path):
+                        files_to_download.append({"key": meta.key, "path": original_path})
+            except Exception as e:
+                logger.error(f"Could not parse bucket metadata response. Error: {e}")
+                return
+
+            if not files_to_download:
+                logger.warning(f"No files found in MictlanX with path prefix: {request_path}")
+                return
+
+            logger.info(f"Found {len(files_to_download)} files to download for folder {request_path}")
+            for file_info in files_to_download:
+                local_file_path = download_dir / file_info["path"]
+                local_file_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                logger.info(f"  -> Downloading {file_info['key']} to {local_file_path}")
+                dl_result = await MICTLANX_ROUTER.get_to_file(
+                    bucket_id=BUCKET_ID,
+                    key=file_info["key"],
+                    sink_folder_path=str(local_file_path.parent),
+                    filename=local_file_path.name
+                )
+                if dl_result.is_err:
+                    logger.error(f"  -> Failed to download {file_info['key']}: {dl_result.err()}")
+            
+            logger.info(f"✓ Folder download complete for {request_path}")
+
+        else: # Single file download
+            logger.info(f"Single file download requested for: {request_path}")
+            mictlanx_key = sanitize_key(request_path)
+            
+            local_file_path = download_dir / request_path
+            local_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            result = await MICTLANX_ROUTER.get_to_file(
+                bucket_id=BUCKET_ID,
+                key=mictlanx_key,
+                sink_folder_path=str(local_file_path.parent),
+                filename=local_file_path.name
+            )
+            if result.is_ok:
+                downloaded_file_path = result.ok()
+                logger.info(f"✓ Successfully downloaded file to '{downloaded_file_path}'")
+            else:
+                logger.error(f"Failed to download file with key '{mictlanx_key}': {result.err()}")
 
     except Exception as e:
         logger.error(f"An error occurred during the download process: {e}")
         move_to_quarantine(file_path)
+    finally:
+        # Clean up the .mictlanx_download file if it still exists
+        if file_path.exists():
+            file_path.unlink()
 
 async def check_file_existence(client: httpx.AsyncClient, bucket_id: str, file_name: str) -> bool:
     """
@@ -224,17 +280,23 @@ async def upload_file(client: httpx.AsyncClient, file_path: Path):
             ball_id = f"{int(time.time())}-{hashlib.md5(file_name.encode()).hexdigest()[:8]}"
         
         # Step 1: Register metadata
-        sanitized_file_name = sanitize_key(file_name) # Sanitize the file name
-        logger.debug(f"Step 1: Registering metadata for {file_name} (sanitized to: {sanitized_file_name})")
+        relative_path = str(file_path.relative_to(Path(WATCH_DIRECTORY)))
+        sanitized_key = sanitize_key(relative_path)
+        
+        logger.debug(f"Step 1: Registering metadata for {file_name}. Relative Path: '{relative_path}', Sanitized Key: '{sanitized_key}'")
+        
+        # Add the original relative path to the tags to preserve it.
+        tags = {"source": "watcher", "timestamp": str(time.time()), "path": relative_path}
+
         metadata_payload = {
             "bucket_id": BUCKET_ID,
-            "key": sanitized_file_name, # Use the sanitized file name as key
+            "key": sanitized_key,
             "ball_id": ball_id,
             "checksum": checksum,
             "size": file_size,
             "producer_id": "nez-watcher",
             "replication_factor": REPLICATION_FACTOR,
-            "tags": {"source": "watcher", "timestamp": str(time.time())},
+            "tags": tags,
         }
         
         response_meta = await client.post(
@@ -316,10 +378,12 @@ async def worker(name: str, queue: asyncio.Queue):
                     # Wait for file to be completely written
                     await wait_for_file_stability(file_path)
 
-                    # Check if file already exists in MictlanX
-                    file_name = file_path.name
-                    if await check_file_existence(client, BUCKET_ID, file_name):
-                        logger.info(f"[{name}] File '{file_name}' already exists in MictlanX. Skipping upload.")
+                    # To check if the file exists, we must use the same key that will be used for the upload.
+                    relative_path = str(file_path.relative_to(Path(WATCH_DIRECTORY)))
+                    sanitized_key = sanitize_key(relative_path)
+
+                    if await check_file_existence(client, BUCKET_ID, sanitized_key):
+                        logger.info(f"[{name}] File with key '{sanitized_key}' already exists in MictlanX. Skipping upload.")
                         continue # Skip to the next item in the queue
 
                     # Upload the file
