@@ -153,40 +153,39 @@ async def check_file_existence(client: httpx.AsyncClient, router: AsyncRouter, b
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
 async def upload_file(client: httpx.AsyncClient, router: AsyncRouter, file_path: Path):
     """Orchestrates the two-step file upload process."""
-    file_name = file_path.name
     file_size = file_path.stat().st_size
+    relative_path = str(file_path.relative_to(Path(WATCH_DIRECTORY)))
 
     if file_size == 0:
-        logger.warning(f"Skipping empty file: {file_name}")
+        logger.warning(f"Skipping empty file: {relative_path}")
         return
 
     max_size_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
     if file_size > max_size_bytes:
-        logger.error(f"File {file_name} exceeds maximum size ({MAX_FILE_SIZE_MB}MB). Skipping.")
+        logger.error(f"File {relative_path} exceeds maximum size ({MAX_FILE_SIZE_MB}MB). Skipping.")
         raise ValueError(f"File too large: {file_size} bytes")
 
-    logger.info(f"Starting upload for {file_name} ({file_size} bytes)")
+    logger.info(f"Starting upload for {relative_path} ({file_size} bytes)")
 
     try:
-        logger.debug(f"Calculating SHA256 checksum for {file_name}")
+        logger.debug(f"Calculating SHA256 checksum for {relative_path}")
         sha256_hash = hashlib.sha256()
         with open(file_path, "rb") as f:
             for byte_block in iter(lambda: f.read(65536), b""):
                 sha256_hash.update(byte_block)
         checksum = sha256_hash.hexdigest()
-        logger.debug(f"Checksum for {file_name}: {checksum}")
+        logger.debug(f"Checksum for {relative_path}: {checksum}")
 
         try:
             import nanoid
             ball_id = nanoid.generate()
         except ImportError:
             logger.warning("nanoid not available, using alternative ID generation")
-            ball_id = f"{int(time.time())}-{hashlib.md5(file_name.encode()).hexdigest()[:8]}"
+            ball_id = f"{int(time.time())}-{hashlib.md5(file_path.name.encode()).hexdigest()[:8]}"
 
-        relative_path = str(file_path.relative_to(Path(WATCH_DIRECTORY)))
         sanitized_key = sanitize_key(relative_path)
 
-        logger.debug(f"Step 1: Registering metadata for {file_name}. Relative Path: '{relative_path}', Sanitized Key: '{sanitized_key}'")
+        logger.debug(f"Step 1: Registering metadata for {relative_path}. Sanitized Key: '{sanitized_key}'")
 
         tags = {"source": "watcher", "timestamp": str(time.time()), "path": relative_path}
 
@@ -219,7 +218,7 @@ async def upload_file(client: httpx.AsyncClient, router: AsyncRouter, file_path:
 
         logger.debug(f"Step 2: Uploading file data for task {task_id}")
         with open(file_path, "rb") as f:
-            files = {"data": (file_name, f, "application/octet-stream")}
+            files = {"data": (file_path.name, f, "application/octet-stream")}
             response_data = await client.post(
                 f"{router.base_url()}/api/v4/buckets/data/{task_id}",
                 files=files,
@@ -227,14 +226,14 @@ async def upload_file(client: httpx.AsyncClient, router: AsyncRouter, file_path:
             )
             response_data.raise_for_status()
 
-        logger.info(f"✓ Upload complete for {file_name}")
-        return file_name
+        logger.info(f"✓ Upload complete for {relative_path}")
+        return relative_path
     except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP {e.response.status_code} error uploading {file_name}: {e.response.text}")
+        logger.error(f"HTTP {e.response.status_code} error uploading {relative_path}: {e.response.text}")
         raise
     except httpx.RequestError as e:
-        logger.error(f"Network error uploading {file_name}: {e}")
+        logger.error(f"Network error uploading {relative_path}: {e}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error uploading {file_name}: {e}")
+        logger.error(f"Unexpected error uploading {relative_path}: {e}")
         raise

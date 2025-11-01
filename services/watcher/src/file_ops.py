@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import shutil
 from pathlib import Path
 from watchdog.events import FileSystemEventHandler
 
@@ -42,10 +43,10 @@ def move_to_quarantine(file_path: Path):
             destination = quarantine_path / f"{file_path.stem}_{counter}{file_path.suffix}"
             counter += 1
         
-        file_path.rename(destination)
+        shutil.move(str(file_path), str(destination))
         logger.warning(f"Moved failed file to quarantine: {destination}")
     except Exception as e:
-        logger.error(f"Failed to move {file_path.name} to quarantine: {e}")
+        logger.error(f"Failed to move {file_path} to quarantine: {e}")
 
 class NewFileHandler(FileSystemEventHandler):
     """Handles file system events and adds new files to the processing queue."""
@@ -56,12 +57,24 @@ class NewFileHandler(FileSystemEventHandler):
         super().__init__()
     
     def on_created(self, event):
-        if not event.is_directory:
-            file_path = Path(event.src_path)
-            logger.info(f"📁 New file detected: {file_path.name}")
-            
-            # Add to queue asynchronously
-            asyncio.run_coroutine_threadsafe(
-                self.queue.put(file_path),
-                self.loop
-            )
+        """
+        Called when a file or directory is created.
+        If a directory is created, recursively finds all files and adds them to the queue.
+        If a file is created, adds it directly to the queue.
+        """
+        src_path = Path(event.src_path)
+        if event.is_directory:
+            logger.info(f"📁 New directory detected: {src_path}. Scanning for files...")
+            # Use a small delay to allow files to be fully moved/created inside the new directory
+            async def delayed_scan():
+                await asyncio.sleep(1.0)
+                for file_path in src_path.rglob('*'):
+                    if file_path.is_file():
+                        logger.info(f"  - Queuing file from directory: {file_path}")
+                        self.queue.put_nowait(file_path)
+            asyncio.run_coroutine_threadsafe(delayed_scan(), self.loop)
+        else:
+            # It's a single file
+            logger.info(f"📁 New file detected: {src_path}")
+            # Use put_nowait as it's called from a threadsafe context
+            self.queue.put_nowait(src_path)

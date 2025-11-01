@@ -354,6 +354,26 @@ services:
       - "./deployer/app/dispersals/downloads/c4/:/home/Volume/Results/chunk4/"
       - "./deployer/app/dispersals/downloads/c5/:/home/Volume/Results/chunk5/"
 
+  nez-watcher:
+    image: nez-watcher
+    container_name: nez-watcher
+    restart: unless-stopped
+    environment:
+      # Conecta con el router que corre en tu máquina host usando un DNS especial de Docker
+      - MICTLANX_URI=http://mictlanx-router-0@host.docker.internal:60666
+      # Define las rutas que usará el script DENTRO del contenedor
+      - WATCH_DIRECTORY=/watch
+      - QUARANTINE_DIRECTORY=/quarantine
+      - LOG_LEVEL=INFO
+    volumes:
+      # Mapea las carpetas de tu máquina a las carpetas de DENTRO del contenedor
+      - ./deployer/app/results:/watch
+      - ./deployer/app/quarantine:/quarantine
+      # La carpeta de descargas también se mapea para que puedas ver los archivos bajados
+      - ./deployer/app/downloads:/downloads
+    depends_on:
+      - deployer
+
   # watcher:
 #     build:
 #       context: ../..

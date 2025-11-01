@@ -1,0 +1,69 @@
+version: '3'
+services:
+    ToRGB: 
+        image: dicomtorgb:v1
+        restart: always
+        expose:
+            - "5000/tcp"
+        volumes:
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3"
+    DetectorPulmon: 
+        image: ddomizzi/deteccion:pulmon
+        restart: always
+        expose:
+            - "5000/tcp"
+        volumes:
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3"
+    Anonimizacion: 
+        image: ddomizzi/cleaner:header
+        restart: always
+        expose:
+            - "5000/tcp"
+        volumes:
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3"
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG"
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG/P1:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG/P1"
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG/P2:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG/P2"
+    lbDetectorPulmonpattern: 
+        image: tc:balancer
+        restart: always
+        expose:
+            - "5000/tcp"
+        volumes:
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3"
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3/stage_DetectorPulmon:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3/stage_DetectorPulmon"
+        links:
+            - DetectorPulmon
+    lbToRGBpattern: 
+        image: tc:balancer
+        restart: always
+        expose:
+            - "5000/tcp"
+        volumes:
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3"
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3/stage_ToRGB:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3/stage_ToRGB"
+        links:
+            - ToRGB
+    lbAnonimizacionpattern: 
+        image: tc:balancer
+        restart: always
+        expose:
+            - "5000/tcp"
+        volumes:
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3"
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3/stage_Anonimizacion:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic3/stage_Anonimizacion"
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG"
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG/P2:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG/P2"
+            - "/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG/P1:/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//testmic3/catalogs/TESTCATALOG/P1"
+        links:
+            - Anonimizacion
+    proxy:
+        image: microservice:base
+        links:
+             - ToRGB
+             - DetectorPulmon
+             - Anonimizacion
+             - lbDetectorPulmonpattern
+             - lbToRGBpattern
+             - lbAnonimizacionpattern
+

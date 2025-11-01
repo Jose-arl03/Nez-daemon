@@ -60,24 +60,27 @@ async def worker(name: str, queue: asyncio.Queue, router: AsyncRouter):
             
             try:
                 if file_path.suffix == '.mictlanx_download':
+                    logger.info(f"[{name}] Processing download request: {file_path.name}")
                     await download_file_from_mictlanx(router, file_path)
                 else:
+                    relative_path = str(file_path.relative_to(Path(config.WATCH_DIRECTORY)))
+                    logger.info(f"[{name}] Processing file: {relative_path}")
+                    
                     await wait_for_file_stability(file_path)
 
-                    relative_path = str(file_path.relative_to(Path(config.WATCH_DIRECTORY)))
                     sanitized_key = sanitize_key(relative_path)
 
                     if await check_file_existence(client, router, config.BUCKET_ID, sanitized_key):
-                        logger.info(f"[{name}] File with key '{sanitized_key}' already exists in MictlanX. Skipping upload.")
+                        logger.info(f"[{name}] File '{relative_path}' (key: '{sanitized_key}') already exists. Skipping.")
                         continue
 
                     await upload_file(client, router, file_path)
-                    logger.info(f"[{name}] ✓ Successfully processed {file_path.name}")
+                    logger.info(f"[{name}] ✓ Successfully processed {relative_path}")
             
             except FileNotFoundError:
-                logger.warning(f"[{name}] File disappeared: {file_path.name}")
+                logger.warning(f"[{name}] File disappeared during processing: {file_path.name}")
             except RetryError:
-                logger.error(f"[{name}] ✗ Failed after all retries: {file_path.name}")
+                logger.error(f"[{name}] ✗ Failed after all retries for: {file_path.name}")
                 move_to_quarantine(file_path)
             except Exception as e:
                 logger.error(f"[{name}] ✗ Unexpected error processing {file_path.name}: {e}")
