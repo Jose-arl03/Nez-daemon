@@ -1,2 +1,0 @@
-/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/testmic1/stages.json
-
