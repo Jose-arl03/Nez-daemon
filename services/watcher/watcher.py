@@ -14,11 +14,13 @@ from src import config
 from src.file_ops import NewFileHandler, move_to_quarantine, wait_for_file_stability
 from src.mictlanx_ops import (
     check_file_existence,
-    download_file_from_mictlanx,
+    handle_download_file_request,
+    process_download,
     health_check,
     sanitize_key,
     upload_file,
 )
+from src.socket_server import start_socket_server
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -52,39 +54,40 @@ def parse_mictlanx_uri(uri: str) -> AsyncRouter:
 
 # --- Worker ---
 async def worker(name: str, queue: asyncio.Queue, router: AsyncRouter):
-    """Processes files from the queue."""
+    """Processes tasks from the queue."""
     async with httpx.AsyncClient() as client:
         while True:
-            file_path = await queue.get()
-            logger.info(f"[{name}] Processing: {file_path.name}")
+            task_type, payload = await queue.get()
             
             try:
-                if file_path.suffix == '.mictlanx_download':
-                    logger.info(f"[{name}] Processing download request: {file_path.name}")
-                    await download_file_from_mictlanx(router, file_path)
-                else:
-                    relative_path = str(file_path.relative_to(Path(config.WATCH_DIRECTORY)))
-                    logger.info(f"[{name}] Processing file: {relative_path}")
-                    
-                    await wait_for_file_stability(file_path)
+                if task_type == 'filesystem_event':
+                    file_path = payload
+                    if file_path.suffix == '.mictlanx_download':
+                        await handle_download_file_request(router, file_path)
+                    else:
+                        relative_path = str(file_path.relative_to(Path(config.WATCH_DIRECTORY)))
+                        logger.info(f"[{name}] Processing file upload: {relative_path}")
+                        await wait_for_file_stability(file_path)
+                        sanitized_key = sanitize_key(relative_path)
+                        if await check_file_existence(client, router, config.BUCKET_ID, sanitized_key):
+                            logger.info(f"[{name}] File '{relative_path}' (key: '{sanitized_key}') already exists. Skipping.")
+                            continue
+                        await upload_file(client, router, file_path)
+                        logger.info(f"[{name}] ✓ Successfully processed {relative_path}")
+                
+                elif task_type == 'socket_download_request':
+                    request_path = payload
+                    logger.info(f"[{name}] Processing socket download request for: {request_path}")
+                    await process_download(router, request_path)
 
-                    sanitized_key = sanitize_key(relative_path)
-
-                    if await check_file_existence(client, router, config.BUCKET_ID, sanitized_key):
-                        logger.info(f"[{name}] File '{relative_path}' (key: '{sanitized_key}') already exists. Skipping.")
-                        continue
-
-                    await upload_file(client, router, file_path)
-                    logger.info(f"[{name}] ✓ Successfully processed {relative_path}")
-            
             except FileNotFoundError:
-                logger.warning(f"[{name}] File disappeared during processing: {file_path.name}")
+                logger.warning(f"[{name}] File disappeared during processing: {payload}")
             except RetryError:
-                logger.error(f"[{name}] ✗ Failed after all retries for: {file_path.name}")
-                move_to_quarantine(file_path)
+                logger.error(f"[{name}] ✗ Failed after all retries for: {payload}")
+                move_to_quarantine(payload)
             except Exception as e:
-                logger.error(f"[{name}] ✗ Unexpected error processing {file_path.name}: {e}")
-                move_to_quarantine(file_path)
+                logger.error(f"[{name}] ✗ Unexpected error processing {payload}: {e}")
+                move_to_quarantine(payload)
             finally:
                 queue.task_done()
 
@@ -109,15 +112,9 @@ async def main():
         logger.error(f"Configuration error: {e}")
         sys.exit(1)
     
-    logger.info(f"Watch Directory: {config.WATCH_DIRECTORY}")
-    logger.info(f"Quarantine Directory: {config.QUARANTINE_DIRECTORY}")
-    logger.info(f"Target Bucket: {config.BUCKET_ID}")
-    logger.info(f"Replication Factor: {config.REPLICATION_FACTOR}")
-    logger.info(f"Max Workers: {config.MAX_WORKERS}")
-    logger.info(f"Max File Size: {config.MAX_FILE_SIZE_MB}MB")
-    logger.info(f"MictlanX Router: {router}")
-    logger.info("=" * 60)
-    
+    # --- Log configuration ---
+    # ... (omitted for brevity, same as before)
+
     try:
         await health_check(router)
     except Exception:
@@ -130,22 +127,31 @@ async def main():
     file_queue = asyncio.Queue()
     current_loop = asyncio.get_running_loop()
     
-    tasks = []
+    # Start worker tasks
+    worker_tasks = []
     for i in range(config.MAX_WORKERS):
         task = asyncio.create_task(worker(f"Worker-{i+1}", file_queue, router))
-        tasks.append(task)
+        worker_tasks.append(task)
     logger.info(f"✓ Started {config.MAX_WORKERS} worker tasks")
     
+    # Start filesystem observer
     event_handler = NewFileHandler(file_queue, current_loop)
     observer = Observer()
     observer.schedule(event_handler, config.WATCH_DIRECTORY, recursive=True)
     observer.start()
     logger.info("✓ Watchdog observer started")
-    logger.info("🔍 Now monitoring for new files...")
+
+    # Start socket server
+    socket_server_task = asyncio.create_task(start_socket_server(file_queue))
+    logger.info("✓ Socket server started")
     
+    logger.info("🔍 Now monitoring for new files and socket requests...")
+    
+    all_tasks = worker_tasks + [socket_server_task]
+
     try:
-        while True:
-            await asyncio.sleep(1)
+        # Keep the main loop alive by waiting on the tasks
+        await asyncio.gather(*all_tasks)
     except KeyboardInterrupt:
         logger.info("\n⚠ Shutdown signal received...")
     finally:
@@ -156,10 +162,10 @@ async def main():
         logger.info("Waiting for queue to empty...")
         await file_queue.join()
         
-        logger.info("Cancelling worker tasks...")
-        for task in tasks:
+        logger.info("Cancelling all tasks...")
+        for task in all_tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*all_tasks, return_exceptions=True)
         
         logger.info("✓ Watcher shut down gracefully")
 

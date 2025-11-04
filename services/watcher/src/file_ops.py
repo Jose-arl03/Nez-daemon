@@ -59,8 +59,7 @@ class NewFileHandler(FileSystemEventHandler):
     def on_created(self, event):
         """
         Called when a file or directory is created.
-        If a directory is created, recursively finds all files and adds them to the queue.
-        If a file is created, adds it directly to the queue.
+        Puts a ('filesystem_event', path) task onto the queue.
         """
         src_path = Path(event.src_path)
         if event.is_directory:
@@ -71,10 +70,9 @@ class NewFileHandler(FileSystemEventHandler):
                 for file_path in src_path.rglob('*'):
                     if file_path.is_file():
                         logger.info(f"  - Queuing file from directory: {file_path}")
-                        self.queue.put_nowait(file_path)
+                        self.queue.put_nowait(('filesystem_event', file_path))
             asyncio.run_coroutine_threadsafe(delayed_scan(), self.loop)
         else:
             # It's a single file
             logger.info(f"📁 New file detected: {src_path}")
-            # Use put_nowait as it's called from a threadsafe context
-            self.queue.put_nowait(src_path)
+            self.queue.put_nowait(('filesystem_event', src_path))

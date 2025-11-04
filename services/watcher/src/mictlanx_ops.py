@@ -42,74 +42,85 @@ async def health_check(router: AsyncRouter):
         raise
 
 
-async def download_file_from_mictlanx(router: AsyncRouter, file_path: Path):
-    """Downloads a file or folder from MictlanX by searching metadata tags."""
+async def process_download(router: AsyncRouter, request_path: str):
+    """
+    Core logic to download a file or folder given a request path.
+    This can be called from a file-based request or a socket request.
+    """
+    if not request_path:
+        logger.error("Download request path is empty.")
+        return
+
+    download_dir = Path(WATCH_DIRECTORY).parent / "downloads"
+    download_dir.mkdir(exist_ok=True)
+
+    if request_path.endswith('/'):
+        logger.info(f"Folder download requested for: {request_path}")
+        all_metadata_result = await router.get_bucket_metadata(bucket_id=BUCKET_ID)
+        if all_metadata_result.is_err:
+            logger.error(f"Could not retrieve bucket metadata for folder download: {all_metadata_result.err()}")
+            return
+
+        files_to_download = []
+        try:
+            all_metadata = all_metadata_result.ok().unwrap().balls
+            for meta in all_metadata:
+                original_path = meta.tags.get("path")
+                if original_path and original_path.startswith(request_path):
+                    files_to_download.append({"key": meta.key, "path": original_path})
+        except Exception as e:
+            logger.error(f"Could not parse bucket metadata response. Error: {e}")
+            return
+
+        if not files_to_download:
+            logger.warning(f"No files found in MictlanX with path prefix: {request_path}")
+            return
+
+        logger.info(f"Found {len(files_to_download)} files to download for folder {request_path}")
+        for file_info in files_to_download:
+            local_file_path = download_dir / file_info["path"]
+            local_file_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"  -> Downloading {file_info['key']} to {local_file_path}")
+            dl_result = await router.get_to_file(
+                bucket_id=BUCKET_ID,
+                key=file_info["key"],
+                sink_folder_path=str(local_file_path.parent),
+                filename=local_file_path.name,
+            )
+            if dl_result.is_err:
+                logger.error(f"  -> Failed to download {file_info['key']}: {dl_result.err()}")
+        logger.info(f"✓ Folder download complete for {request_path}")
+    else:
+        logger.info(f"Single file download requested for: {request_path}")
+        mictlanx_key = sanitize_key(request_path)
+        local_file_path = download_dir / request_path
+        local_file_path.parent.mkdir(parents=True, exist_ok=True)
+        result = await router.get_to_file(
+            bucket_id=BUCKET_ID,
+            key=mictlanx_key,
+            sink_folder_path=str(local_file_path.parent),
+            filename=local_file_path.name,
+        )
+        if result.is_ok:
+            downloaded_file_path = result.ok()
+            logger.info(f"✓ Successfully downloaded file to '{downloaded_file_path}'")
+        else:
+            logger.error(f"Failed to download file with key '{mictlanx_key}': {result.err()}")
+
+async def handle_download_file_request(router: AsyncRouter, file_path: Path):
+    """
+    Handles a download request triggered by a .mictlanx_download file.
+    Reads the request path from the file and calls the core download processor.
+    """
     try:
         logger.info(f"Processing download request from file: {file_path.name}")
         with open(file_path, 'r') as f:
             request_path = f.read().strip()
+        
+        await process_download(router, request_path)
 
-        if not request_path:
-            logger.error(f"The download file {file_path.name} is empty.")
-            return
-
-        download_dir = Path(WATCH_DIRECTORY).parent / "downloads"
-        download_dir.mkdir(exist_ok=True)
-
-        if request_path.endswith('/'):
-            logger.info(f"Folder download requested for: {request_path}")
-            all_metadata_result = await router.get_bucket_metadata(bucket_id=BUCKET_ID)
-            if all_metadata_result.is_err:
-                logger.error(f"Could not retrieve bucket metadata for folder download: {all_metadata_result.err()}")
-                return
-
-            files_to_download = []
-            try:
-                all_metadata = all_metadata_result.ok().unwrap().balls
-                for meta in all_metadata:
-                    original_path = meta.tags.get("path")
-                    if original_path and original_path.startswith(request_path):
-                        files_to_download.append({"key": meta.key, "path": original_path})
-            except Exception as e:
-                logger.error(f"Could not parse bucket metadata response. Error: {e}")
-                return
-
-            if not files_to_download:
-                logger.warning(f"No files found in MictlanX with path prefix: {request_path}")
-                return
-
-            logger.info(f"Found {len(files_to_download)} files to download for folder {request_path}")
-            for file_info in files_to_download:
-                local_file_path = download_dir / file_info["path"]
-                local_file_path.parent.mkdir(parents=True, exist_ok=True)
-                logger.info(f"  -> Downloading {file_info['key']} to {local_file_path}")
-                dl_result = await router.get_to_file(
-                    bucket_id=BUCKET_ID,
-                    key=file_info["key"],
-                    sink_folder_path=str(local_file_path.parent),
-                    filename=local_file_path.name,
-                )
-                if dl_result.is_err:
-                    logger.error(f"  -> Failed to download {file_info['key']}: {dl_result.err()}")
-            logger.info(f"✓ Folder download complete for {request_path}")
-        else:
-            logger.info(f"Single file download requested for: {request_path}")
-            mictlanx_key = sanitize_key(request_path)
-            local_file_path = download_dir / request_path
-            local_file_path.parent.mkdir(parents=True, exist_ok=True)
-            result = await router.get_to_file(
-                bucket_id=BUCKET_ID,
-                key=mictlanx_key,
-                sink_folder_path=str(local_file_path.parent),
-                filename=local_file_path.name,
-            )
-            if result.is_ok:
-                downloaded_file_path = result.ok()
-                logger.info(f"✓ Successfully downloaded file to '{downloaded_file_path}'")
-            else:
-                logger.error(f"Failed to download file with key '{mictlanx_key}': {result.err()}")
     except Exception as e:
-        logger.error(f"An error occurred during the download process: {e}")
+        logger.error(f"An error occurred during the file-based download process: {e}")
         move_to_quarantine(file_path)
     finally:
         if file_path.exists():
