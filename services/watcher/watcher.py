@@ -142,7 +142,7 @@ async def main():
     logger.info("✓ Watchdog observer started")
 
     # Start socket server
-    socket_server_task = asyncio.create_task(start_socket_server(file_queue))
+    socket_server_task = asyncio.create_task(start_socket_server(file_queue, router))
     logger.info("✓ Socket server started")
     
     logger.info("🔍 Now monitoring for new files and socket requests...")

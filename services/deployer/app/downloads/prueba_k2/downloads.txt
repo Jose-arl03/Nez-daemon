@@ -1,0 +1,26 @@
+Request: http://172.29.211.35:20500//pub_sub/v1/view/catalog/787409f596c92551b400f6a6cb551450e82ec5bde8dbea4655c986f77b4510cc?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+Request: http://172.29.211.35:20500//pub_sub/v1/view/childs/catalog/787409f596c92551b400f6a6cb551450e82ec5bde8dbea4655c986f77b4510cc?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/prueba_k2/catalogs/TESTCATALOG//P1
+Request: http://172.29.211.35:20500//pub_sub/v1/view/childs/catalog/d0b10c515cab69cccd08f616212e639ea2ca2e7112b6570ae88997f0f8b5f5c9?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+Request: http://172.29.211.35:20500//pub_sub/v1/view/files/catalog/d0b10c515cab69cccd08f616212e639ea2ca2e7112b6570ae88997f0f8b5f5c9?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+1,1,4895,4895
+/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/prueba_k2/catalogs/TESTCATALOG//P2
+Request: http://172.29.211.35:20500//pub_sub/v1/view/childs/catalog/b4ab81bda43837902b8a83fa1e05e0b32db152bfe4b6937bfb5246404bc4cb78?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+Request: http://172.29.211.35:20500//pub_sub/v1/view/files/catalog/b4ab81bda43837902b8a83fa1e05e0b32db152bfe4b6937bfb5246404bc4cb78?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+1,1,4895,4895,0,3826,3826
+Request: http://172.29.211.35:20500//pub_sub/v1/view/files/catalog/787409f596c92551b400f6a6cb551450e82ec5bde8dbea4655c986f77b4510cc?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+1,1,4895,4895,0,3826,3826,0,0,0
+
+
+Request: http://172.29.211.35:20500//pub_sub/v1/view/catalog/b4ab81bda43837902b8a83fa1e05e0b32db152bfe4b6937bfb5246404bc4cb78?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+Request: http://172.29.211.35:20500//pub_sub/v1/view/childs/catalog/b4ab81bda43837902b8a83fa1e05e0b32db152bfe4b6937bfb5246404bc4cb78?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+Request: http://172.29.211.35:20500//pub_sub/v1/view/files/catalog/b4ab81bda43837902b8a83fa1e05e0b32db152bfe4b6937bfb5246404bc4cb78?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+1,0,0,0
+
+
+Request: http://172.29.211.35:20500//pub_sub/v1/view/catalog/d0b10c515cab69cccd08f616212e639ea2ca2e7112b6570ae88997f0f8b5f5c9?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+Request: http://172.29.211.35:20500//pub_sub/v1/view/childs/catalog/d0b10c515cab69cccd08f616212e639ea2ca2e7112b6570ae88997f0f8b5f5c9?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+Request: http://172.29.211.35:20500//pub_sub/v1/view/files/catalog/d0b10c515cab69cccd08f616212e639ea2ca2e7112b6570ae88997f0f8b5f5c9?access_token=f88b570a3be204659cac93249e4b4690f13dd787f03eeae49a779f1fe840f30d
+1,0,0,0
+
+

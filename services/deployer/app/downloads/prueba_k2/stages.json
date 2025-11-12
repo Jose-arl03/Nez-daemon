@@ -1,0 +1,20 @@
+{
+	"workflow_name":"prueba_k2",
+	"stages":[
+			{"name":"stage_Anonimizacion","sources":["/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//prueba_k2/catalogs/TESTCATALOG","/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//prueba_k2/catalogs/TESTCATALOG/P2","/home/alo03/Estadia/Nez-daemon/services/deployer/app//results//prueba_k2/catalogs/TESTCATALOG/P1"], "sinks":["/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/prueba_k2/stage_Anonimizacion"]},
+			{"name":"stage_ToRGB","sources":["/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/prueba_k2//stage_Anonimizacion/Anonimizacionpattern/Anonimizacion"], "sinks":["/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/prueba_k2/stage_ToRGB"]},
+			{"name":"stage_DetectorPulmon","sources":["/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/prueba_k2//stage_ToRGB/ToRGBpattern/ToRGB"], "sinks":["/home/alo03/Estadia/Nez-daemon/services/deployer/app//results/prueba_k2/stage_DetectorPulmon"]}
+		],
+	"containers":[
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_Anonimizacion_1","id":"1f5fe313a3d547c62987a1b28252f7c11d93167ae42a8a547b09c678b6dedfde"},
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_Anonimizacion_2","id":"632b3be70d3ba8b42ee69fbecbcacea3f5938dd1cece98f499b28e27062f67c4"},
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_DetectorPulmon_1","id":"d7ceae82cc3fea9049fdba0f1dd82b307092d715c83d4c5b8bf44e58ff97cef0"},
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_DetectorPulmon_2","id":"41d6f8f4dd30184caa62b0ec53ca5f3ecb29c59547b886f01be228ef85ef24b1"},
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_ToRGB_1","id":"58259ca1fff487b45682815827f7917f78f7a043c5df1c5680bebae73529fb98"},
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_ToRGB_2","id":"dadd516358e8c885a5df5d51314d0fa14aaf14233f256a5f0d016a68dcb6deca"},
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_lbAnonimizacionpattern_1","id":"3bd767d908d155153a3db296c4be5a5f839a20dbecbf78afc4c7d61afdcbb4fa"},
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_lbDetectorPulmonpattern_1","id":"4eb8b868785ba618a7804fb3bf85e741e5363877bf326af4e1ad1ff276df58a0"},
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_lbToRGBpattern_1","id":"fd837a8e133eb70257e5b999ae23ffbb6d3c6f690201fc3cf895c948aca503a6"},
+			{"name":"/homealo03estadianez-daemonservicesdeployerappresultsprueba_k2_proxy_1","id":"489df5cdd561e4ec391bc11da2eafdee850df08d091b34a33d87c58b9f31ca86"}
+		]
+}

@@ -374,6 +374,7 @@ services:
       - ./deployer/app/quarantine:/quarantine
       # La carpeta de descargas también se mapea para que puedas ver los archivos bajados
       - ./deployer/app/downloads:/downloads
+      - /tmp:/tmp # Mount the entire /tmp directory to the host
     depends_on:
       - deployer
 
