@@ -92,12 +92,32 @@ async def process_download(router: AsyncRouter, request_path: str):
         logger.info(f"✓ Folder download complete for {request_path}")
     else:
         logger.info(f"Single file download requested for: {request_path}")
-        mictlanx_key = sanitize_key(request_path)
+        all_metadata_result = await router.get_bucket_metadata(bucket_id=BUCKET_ID)
+        if all_metadata_result.is_err:
+            logger.error(f"Could not retrieve bucket metadata for single file download: {all_metadata_result.err()}")
+            return
+
+        found_file_key = None
+        try:
+            all_metadata = all_metadata_result.ok().unwrap().balls
+            for meta in all_metadata:
+                original_path = meta.tags.get("path")
+                if original_path == request_path:
+                    found_file_key = meta.key
+                    break
+        except Exception as e:
+            logger.error(f"Could not parse bucket metadata response for single file download. Error: {e}")
+            return
+
+        if not found_file_key:
+            logger.warning(f"No file found in MictlanX with path: {request_path}")
+            return
+
         local_file_path = download_dir / request_path
         local_file_path.parent.mkdir(parents=True, exist_ok=True)
         result = await router.get_to_file(
             bucket_id=BUCKET_ID,
-            key=mictlanx_key,
+            key=found_file_key,
             sink_folder_path=str(local_file_path.parent),
             filename=local_file_path.name,
         )
@@ -105,7 +125,7 @@ async def process_download(router: AsyncRouter, request_path: str):
             downloaded_file_path = result.ok()
             logger.info(f"✓ Successfully downloaded file to '{downloaded_file_path}'")
         else:
-            logger.error(f"Failed to download file with key '{mictlanx_key}': {result.err()}")
+            logger.error(f"Failed to download file with key '{found_file_key}': {result.err()}")
 
 async def handle_download_file_request(router: AsyncRouter, file_path: Path):
     """
