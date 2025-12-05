@@ -106,10 +106,9 @@ void Workflow::downloadInputData(const string& workdirbase)
     
     for (auto catalog : this->catalogKeys)
     {
-        string java_down_cmd = "java -jar Download.jar " + token + " " + apikey + " " + catalog->getToken() \
-            + " 2 1 cinves '" + outDir + "/catalogs" + "/" + catalog->getName() + "' " + access + " true false 1";
-        cout << java_down_cmd << endl;
-        string output =  this->exec_cmd(java_down_cmd.c_str());
+        string nez_client_cmd = "unix_socket_client download_directory 'catalogs/" + catalog->getName() + "/'";
+        cout << nez_client_cmd << endl;
+        string output =  this->exec_cmd(nez_client_cmd.c_str());
         //system(java_down_cmd.c_str());
         myfile << output + "\n\n";
     }

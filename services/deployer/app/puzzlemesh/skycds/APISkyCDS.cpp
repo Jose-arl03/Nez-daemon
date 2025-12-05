@@ -39,7 +39,7 @@ Json::Value APISkyCDS::parseJSONStr(const std::string& jsonString){
 }
 
 Catalog* APISkyCDS::createCat(const std::string& name, const std::string& fatherToken, bool isCiphered) {
-    const std::string json = "{ \"catalogname\": \" " + name + " \", \"dispersemode\": \"IDA\", \"encryption\":\""+
+    const std::string json = "{ \"catalogname\": \"" + name + "\", \"dispersemode\": \"false\", \"encryption\":\""+
             (isCiphered ? "true" : "false") +"\", \"fathers_token\":\""+fatherToken+"\", \"processed\": \"true\" }";
 
     std::cout << json << std::endl;

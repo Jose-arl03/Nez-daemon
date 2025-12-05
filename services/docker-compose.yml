@@ -51,14 +51,12 @@ services:
       DEPLOYER_PORT: 5001
   deployer: #Servicio para el despliegue de sistemas de e-salud
     build: ./deployer
-    image: ddomizzi/deployernez:v1
     command: "python3 /home/app/run.py"
     tty: true
     restart: unless-stopped
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
-      - "./deployer/app:/home/app"
-      - "/home/alo03/Estadia/Nez-daemon/services/deployer/app/:/home/alo03/Estadia/Nez-daemon/services/deployer/app/"
+      - "/tmp:/tmp"
     environment:
       FLASK_ENV: development
       HOST_PATH: /home/alo03/Estadia/Nez-daemon/services/deployer/app/

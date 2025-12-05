@@ -48,8 +48,8 @@ public:
         this->workflow = workflow;
         this->bbs = bbs;
         this->filename = filename;
-        this->workpath = std::getenv("HOST_PATH") == nullptr ? pwd() : std::getenv("HOST_PATH");
-        this->workpath_container = pwd();
+        this->workpath = "/home/app";
+        this->workpath_container = "/home/app";
     };
 
     void start(string mode);

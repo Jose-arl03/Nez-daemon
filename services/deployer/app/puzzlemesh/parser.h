@@ -34,7 +34,7 @@ private:
 public:
     ConfigParser()
     {
-        this->workpath = std::getenv("HOST_PATH") == nullptr ? pwd() : std::getenv("HOST_PATH");
+        this->workpath = "/home/app";
     };
     int readConfig(string filePath,  string apikey,  string token, string access);
     unordered_map<string, Single *> searchSingles(vector<string> lines);

@@ -15,7 +15,7 @@ void Launcher::execute(string mode)
 
 	//system(up_command.c_str());
 	this->workflow->downloadInputData(this->workpath_container + "/results");
-	this->workflow->execute(this->workpath + "/results", compose_command);
+	this->workflow->execute(this->workpath_container + "/results", compose_command);
 }
 
 
@@ -503,8 +503,8 @@ bool Launcher::downloadData(string apikey, string token, string access)
 	myfile.open (pwdStr + "/results/" + this->workflow->getName() + "/downloads.txt");
 	for (auto catalog : catalogs)
 	{
-		string java_down_cmd = "java -jar Download.jar " + token + " " + apikey + " " + catalog->getToken() + " 2 1 cinves '" + pwdStr + "/results/" + this->workflow->getName() + "/catalogs" + "/" + catalog->getName() + "' " + access;
-		string output =  this->workflow->exec_cmd(java_down_cmd.c_str());
+		string nez_client_cmd = "unix_socket_client download_directory 'catalogs/" + catalog->getName() + "/'";
+		string output =  this->workflow->exec_cmd(nez_client_cmd.c_str());
 		//system(java_down_cmd.c_str());
 		myfile << output + "\n\n";
 	}
@@ -518,8 +518,8 @@ bool Launcher::uploadData(string apikey, string token, string access)
 	string pwdStr = this->workpath_container;
 	for (auto catalog : catalogs)
 	{
-		string java_down_cmd = "java -jar Upload.jar " + token + " " + apikey + " " + catalog->getToken() + " single bob 2 '" + pwdStr + "/results/catalogs" + "/" + catalog->getName() + "' cinves true " + access;
-		string output =  this->workflow->exec_cmd(java_down_cmd.c_str());
+		string log_message = "echo \"Upload for " + catalog->getName() + " handled by watcher service.\"";
+		string output =  this->workflow->exec_cmd(log_message.c_str());
 		//system(java_down_cmd.c_str());
 	}
 	return false;

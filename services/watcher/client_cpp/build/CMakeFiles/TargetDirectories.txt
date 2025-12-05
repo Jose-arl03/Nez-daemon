@@ -1,3 +1,0 @@
-/home/alo03/Estadia/Nez-daemon/services/watcher/client_cpp/build/CMakeFiles/unix_socket_client.dir
-/home/alo03/Estadia/Nez-daemon/services/watcher/client_cpp/build/CMakeFiles/edit_cache.dir
-/home/alo03/Estadia/Nez-daemon/services/watcher/client_cpp/build/CMakeFiles/rebuild_cache.dir

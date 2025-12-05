@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/unix_socket_client.dir/main.cpp.o -o unix_socket_client 

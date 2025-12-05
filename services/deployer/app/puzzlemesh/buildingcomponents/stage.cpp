@@ -152,9 +152,9 @@ void Stage::uploadData(APISkyCDS *api, const string& workdirbase, Catalog *fathe
     myfile.open (workdirbase + "/uploads.txt", std::ios_base::app);
 
     this->catalog = api->createCat( father->getName() + "/" + this->getWorkdir() + "-" + ::to_string(ms.count()), father->getToken(), true);
-    string java_down_cmd = "java -jar Upload.jar " + api->getTokenUser() + " " + api->getApikey() + " " + this->catalog->getToken() + " SINGLE bob 2 '" + workdirbase + "/" + this->workdir + "' cinves true " + api->getAccessToken() + " true true 4";
-    cout << java_down_cmd << endl;
-    string output =  this->exec_cmd(java_down_cmd.c_str());
+    string log_message = "echo \"Upload for " + this->getWorkdir() + " handled by watcher service.\"";
+    cout << log_message << endl;
+    string output =  this->exec_cmd(log_message.c_str());
 
     myfile << output + "\n\n";
     myfile.close();
