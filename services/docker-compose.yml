@@ -58,10 +58,10 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./deployer/app:/home/app"
-      - "/home/domizzi/Documents/GitHub/Nez/services/deployer/app/:/home/domizzi/Documents/GitHub/Nez/services/deployer/app/"
+      - "/home/alo03/Estadia/Nez-daemon/services/deployer/app/:/home/alo03/Estadia/Nez-daemon/services/deployer/app/"
     environment:
       FLASK_ENV: development
-      HOST_PATH: /home/domizzi/Documents/GitHub/Nez/services/deployer/app/
+      HOST_PATH: /home/alo03/Estadia/Nez-daemon/services/deployer/app/
   value-chain-api-db: #Base de datos del servicio de construcción
     #build: ./valuechain_api/api/db
     image: ddomizzi/dbnez:v1
@@ -223,7 +223,7 @@ services:
       DB_PORT: 5432
       PUB_SUB_HOST: pub_sub
       AUTH_HOST: auth
-      URL: "http://127.0.0.1:20505"
+      URL: "http://172.29.211.35:20505"
     volumes:
       - ./metadata/metadata/:/var/www/html/
     restart: always
@@ -352,9 +352,34 @@ services:
       - "./deployer/app/dispersals/downloads/c2/:/home/Volume/Results/chunk2/"
       - "./deployer/app/dispersals/downloads/c3/:/home/Volume/Results/chunk3/"
       - "./deployer/app/dispersals/downloads/c4/:/home/Volume/Results/chunk4/"
-      - "./deployer/app/dispersals/downloads/c5/:/home/Volume/Results/chunk5/"  
-  
-volumes:  
+      - "./deployer/app/dispersals/downloads/c5/:/home/Volume/Results/chunk5/"
+
+  nez-watcher:
+    image: nez-watcher
+    build:
+      context: ../..
+      dockerfile: Nez-daemon/services/watcher/Dockerfile
+    container_name: nez-watcher
+    restart: unless-stopped
+    environment:
+      # Conecta con el router que corre en tu máquina host usando un DNS especial de Docker
+      - MICTLANX_URI=http://mictlanx-router-0@host.docker.internal:60666
+      # Define las rutas que usará el script DENTRO del contenedor
+      - WATCH_DIRECTORY=/watch
+      - QUARANTINE_DIRECTORY=/quarantine
+      - LOG_LEVEL=INFO
+    volumes:
+      # Mapea las carpetas de tu máquina a las carpetas de DENTRO del contenedor
+      - ./deployer/app/results:/watch
+      - ./deployer/app/quarantine:/quarantine
+      # La carpeta de descargas también se mapea para que puedas ver los archivos bajados
+      - ./deployer/app/downloads:/downloads
+      - /tmp:/tmp # Mount the entire /tmp directory to the host
+    depends_on:
+      - deployer
+
+
+volumes:
   psql-data-vc:
     driver: local
   sqlt-data-cm:
