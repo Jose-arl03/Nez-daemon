@@ -50,6 +50,8 @@ nav:
     - Overview: concepts/overview.md
     - Architecture: concepts/architecture.md
     - Features: concepts/features.md
+  - Services:
+    - Watcher Client: watcher-client.md
 
 watch:
   - mkdocs.yml
